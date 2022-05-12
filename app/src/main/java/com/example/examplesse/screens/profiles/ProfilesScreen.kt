@@ -5,7 +5,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
-import androidx.compose.runtime.*
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -25,15 +27,18 @@ fun ProfilesScreen(
         scaffoldState = scaffoldState,
         modifier = Modifier.fillMaxSize()
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Spacer(modifier = Modifier.width(100.dp))
-            StreamButton(
-                active = isStreaming,
-                toggleStreaming = viewModel::toggleProfileStreaming
-            )
+        Box(modifier = Modifier.fillMaxSize()) {
             ProfilesView(
                 profileUiState = profilesState,
-                navController = navController
+                navController = navController,
+                modifier = Modifier.fillMaxSize()
+            )
+            StreamButton(
+                active = isStreaming,
+                toggleStreaming = viewModel::toggleProfileStreaming,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(8.dp)
             )
         }
     }
@@ -42,35 +47,50 @@ fun ProfilesScreen(
 @Composable
 fun StreamButton(
     active: Boolean,
-    toggleStreaming: () -> Unit
+    toggleStreaming: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
-    Button(onClick = { toggleStreaming() }) {
-        Text(if (active) "Stop streaming" else "Start streaming")
+    Button(
+        onClick = { toggleStreaming() },
+        modifier = modifier,
+        colors = ButtonDefaults.buttonColors(
+            backgroundColor = MaterialTheme.colors.secondary,
+            contentColor = MaterialTheme.colors.onSecondary
+        )
+    ) {
+        Text(
+            text = if (active) "Stop streaming" else "Start streaming",
+        )
     }
 }
 
 @Composable
-fun ProfilesView(profileUiState: ProfilesUiState, navController: NavController) {
+fun ProfilesView(
+    profileUiState: ProfilesUiState,
+    navController: NavController,
+    modifier: Modifier = Modifier
+) {
     when {
         profileUiState.isLoading -> {
-            LoadingView()
+            LoadingView(modifier)
         }
         profileUiState.error != null -> {
-            ErrorView(profileUiState.error)
+            ErrorView(throwable = profileUiState.error, modifier = modifier)
         }
         else -> {
             ProfileList(
-                profileUiState.data,
-                navController = navController
+                profileList = profileUiState.data,
+                navController = navController,
+                modifier = modifier
             )
         }
     }
 }
 
 @Composable
-fun ErrorView(throwable: Throwable) {
+fun ErrorView(throwable: Throwable, modifier: Modifier = Modifier) {
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         Text(text = throwable.toString())
@@ -78,9 +98,9 @@ fun ErrorView(throwable: Throwable) {
 }
 
 @Composable
-fun LoadingView() {
+fun LoadingView(modifier: Modifier = Modifier) {
     Box(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         contentAlignment = Alignment.Center
     ) {
         CircularProgressIndicator()
@@ -90,16 +110,20 @@ fun LoadingView() {
 @Composable
 fun ProfileList(
     profileList: List<String>,
-    navController: NavController
+    navController: NavController,
+    modifier: Modifier = Modifier
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize(),
+        modifier = modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally,
         contentPadding = PaddingValues(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         items(profileList.size) { index ->
-            ProfileCard(navController, profileList[index])
+            ProfileCard(
+                navController = navController,
+                profileName = profileList[index]
+            )
         }
     }
 }
@@ -107,12 +131,13 @@ fun ProfileList(
 @Composable
 private fun ProfileCard(
     navController: NavController,
-    profileName: String
+    profileName: String,
+    modifier: Modifier = Modifier
 ) {
     Card(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .height(100.dp)
+            .height(80.dp)
             .clickable {
                 navController.navigate(Screen.Details.withArgs(profileName))
             },
