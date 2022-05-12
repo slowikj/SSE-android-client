@@ -74,21 +74,8 @@ open class SSEDataSource<M>(
             .header("Accept", "text/event-stream")
             .build()
 
-        val eventSource = EventSources
+        return EventSources
             .createFactory(okHttpClient)
             .newEventSource(request = request, listener = eventSourceListener)
-
-        okHttpClient.newCall(request).enqueue(responseCallback = object : Callback {
-            override fun onFailure(call: Call, e: IOException) {
-                Log.d("SSEDataSource; enqueue", "API call failure ${e.localizedMessage}")
-                producer.trySend(Event.Error(e))
-                producer.close(e)
-            }
-
-            override fun onResponse(call: Call, response: Response) {
-                Log.d("SSEDataSource; enqueue", "API call success ${response.body?.string()}")
-            }
-        })
-        return eventSource
     }
 }
