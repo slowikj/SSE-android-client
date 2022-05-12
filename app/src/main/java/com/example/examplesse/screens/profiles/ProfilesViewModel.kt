@@ -3,10 +3,11 @@ package com.example.examplesse.screens.profiles
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.examplesse.data.ProfilesEvent
-import com.example.examplesse.data.ProfilesStreamingDataSource
+import com.example.examplesse.data.Event
+import com.example.examplesse.data.ProfileSSEDataSource
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import javax.inject.Inject
 
@@ -18,7 +19,7 @@ data class ProfilesUiState(
 
 @HiltViewModel
 class ProfilesViewModel @Inject constructor(
-    private val profilesStreamingDataSource: ProfilesStreamingDataSource
+    private val profilesStreamingDataSource: ProfileSSEDataSource,
 ) : ViewModel() {
 
     private val _profiles = MutableStateFlow(ProfilesUiState(isLoading = true))
@@ -45,15 +46,24 @@ class ProfilesViewModel @Inject constructor(
 
     private fun startProfileStreaming() {
         profileStreamingJob = profilesStreamingDataSource
-            .profilesFlow
+            .flow
             .onEach { event ->
                 Log.d("ProfilesViewModel", "event $event")
+                showLoadingFirstIfData(event)
                 _profiles.update { state ->
                     mapProfileEventToUi(event, state)
                 }
             }.launchIn(viewModelScope)
 
         _isStreaming.value = true
+    }
+
+    private suspend fun showLoadingFirstIfData(event: Event<List<String>>) {
+        // just for the sake of better UX, show extra loading before new data
+        if (event is Event.Data) {
+            _profiles.update { it.copy(isLoading = true) }
+            delay(1000)
+        }
     }
 
     private fun stopProfileStreaming() {
@@ -64,21 +74,16 @@ class ProfilesViewModel @Inject constructor(
     }
 
     private fun mapProfileEventToUi(
-        event: ProfilesEvent,
+        event: Event<List<String>>,
         prevUiState: ProfilesUiState
     ) = when (event) {
-        is ProfilesEvent.Data ->
+        is Event.Data ->
             prevUiState.copy(
                 error = null,
-                data = event.profiles,
+                data = event.data,
                 isLoading = false
             )
-        is ProfilesEvent.Loading ->
-            prevUiState.copy(
-                error = null,
-                isLoading = true
-            )
-        is ProfilesEvent.Error ->
+        is Event.Error ->
             prevUiState.copy(
                 error = event.throwable,
                 isLoading = false

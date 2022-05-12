@@ -1,9 +1,8 @@
 package com.example.examplesse.data
 
 import android.util.Log
-import com.example.examplesse.di.IODispatcher
-import com.example.examplesse.di.ProfileApi
-import kotlinx.coroutines.*
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.channels.ProducerScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
@@ -11,42 +10,38 @@ import okhttp3.*
 import okhttp3.sse.EventSource
 import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
-import org.json.JSONObject
 import java.io.IOException
-import java.util.concurrent.TimeUnit
-import javax.inject.Inject
 
-sealed class ProfilesEvent {
-    data class Data(val profiles: List<String>) : ProfilesEvent()
+sealed class Event<M> {
+    data class Data<M>(val data: M) : Event<M>()
 
-    object Loading : ProfilesEvent()
-
-    data class Error(val throwable: Throwable?) : ProfilesEvent()
+    data class Error<M>(val throwable: Throwable?) : Event<M>()
 }
 
-class ProfilesStreamingDataSource @Inject constructor(
+open class SSEDataSource<M>(
     private val okHttpClient: OkHttpClient,
-    @ProfileApi private val url: String,
-    @IODispatcher private val ioDispatcher: CoroutineDispatcher,
+    private val url: String,
+    private val ioDispatcher: CoroutineDispatcher,
     private val coroutineScope: CoroutineScope,
+    private val dataExtractor: (String) -> M
 ) {
-    val profilesFlow: Flow<ProfilesEvent> = callbackFlow {
+    val flow: Flow<Event<M>> = callbackFlow {
         val eventSource = startObservingProfiles(this)
         awaitClose { eventSource.cancel() }
     }.flowOn(ioDispatcher)
-        .stateIn(
+        .shareIn(
             scope = coroutineScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = ProfilesEvent.Loading
+            replay = 1
         )
 
     private fun startObservingProfiles(
-        producer: ProducerScope<ProfilesEvent>
+        producer: ProducerScope<Event<M>>
     ): EventSource {
         val eventSourceListener = object : EventSourceListener() {
             override fun onClosed(eventSource: EventSource) {
                 super.onClosed(eventSource)
-                Log.d("ProfilesRepository", "onClosed")
+                Log.d("SSEDataSource", "onClosed")
             }
 
             override fun onEvent(
@@ -56,37 +51,21 @@ class ProfilesStreamingDataSource @Inject constructor(
                 data: String
             ) {
                 super.onEvent(eventSource, id, type, data)
-                Log.d("ProfilesRepository", "onEvent data = $data; id = $id; type = $type; ")
-
+                Log.d("SSEDataSource", "onEvent data = $data; id = $id; type = $type; ")
                 if (data != "null") { // data == "null" means keep-alive message
-                    coroutineScope.launch {
-                        producer.send(ProfilesEvent.Loading)
-                        delay(1000)
-                        producer.send(ProfilesEvent.Data(extractProfilesList(data)))
-                    }
+                    producer.trySend(Event.Data(dataExtractor(data)))
                 }
             }
 
             override fun onFailure(eventSource: EventSource, t: Throwable?, response: Response?) {
                 super.onFailure(eventSource, t, response)
-                Log.d("ProfilesRepository", "onFailure; throwable = $t; response = $response")
-                producer.trySend(ProfilesEvent.Error(t))
+                Log.d("SSEDataSource", "onFailure; throwable = $t; response = $response")
+                producer.trySend(Event.Error(t))
             }
 
             override fun onOpen(eventSource: EventSource, response: Response) {
                 super.onOpen(eventSource, response)
-                Log.d("ProfilesRepository", "onOpen; response = $response")
-            }
-
-            private fun extractProfilesList(data: String): List<String> {
-                val json = JSONObject(data)
-                val profilesJSONArray = json
-                    .getJSONObject("data")
-                    .getJSONArray("profiles")
-
-                return List(profilesJSONArray.length()) { index ->
-                    profilesJSONArray.getString(index)
-                }
+                Log.d("SSEDataSource", "onOpen; response = $response")
             }
         }
 
@@ -101,15 +80,13 @@ class ProfilesStreamingDataSource @Inject constructor(
 
         okHttpClient.newCall(request).enqueue(responseCallback = object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                Log.d("ProfilesRepository; enqueue", "API call failure ${e.localizedMessage}")
-                coroutineScope.launch {
-                    producer.send(ProfilesEvent.Error(e))
-                    producer.close(e)
-                }
+                Log.d("SSEDataSource; enqueue", "API call failure ${e.localizedMessage}")
+                producer.trySend(Event.Error(e))
+                producer.close(e)
             }
 
             override fun onResponse(call: Call, response: Response) {
-                Log.d("ProfilesRepository; enqueue", "API call success ${response.body?.string()}")
+                Log.d("SSEDataSource; enqueue", "API call success ${response.body?.string()}")
             }
         })
         return eventSource
