@@ -25,6 +25,9 @@ fun ProfilesScreen(
 
     Scaffold(
         scaffoldState = scaffoldState,
+        topBar = {
+            TopAppBar(title = { Text("Profile names streaming") })
+        },
         modifier = Modifier.fillMaxSize()
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
